@@ -20,6 +20,8 @@ SRC_DIR = $(notdir $(shell pwd))
 export
 
 bin:
-	../image-util.sh bin $(SRCS)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build
+	docker build -t hub.pingcap.net/chenpeng/webhook:1.0 .
+	docker push hub.pingcap.net/chenpeng/webhook:1.0
 
 .PHONY: bin

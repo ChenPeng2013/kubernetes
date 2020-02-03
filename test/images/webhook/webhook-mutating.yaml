@@ -1,0 +1,25 @@
+apiVersion: admissionregistration.k8s.io/v1beta1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: volume-webhook-injector
+webhooks:
+- clientConfig:
+    caBundle: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUNsakNDQVg0Q0NRQ21IQkcyR25jeE96QU5CZ2txaGtpRzl3MEJBUXNGQURBTk1Rc3dDUVlEVlFRS0RBSngKWVRBZUZ3MHlNREF4TVRrd05qSXpNREphRncwek1EQXhNVFl3TmpJek1ESmFNQTB4Q3pBSkJnTlZCQW9NQW5GaApNSUlCSWpBTkJna3Foa2lHOXcwQkFRRUZBQU9DQVE4QU1JSUJDZ0tDQVFFQXBpM3NMQXJtdzhWeklqTjlLcWxhCk02RmFqT01KalpSNHNWUzdLSGMvR2hBcTdoV1RzK1RjQ0VKRDlIWUR4dkVHVEYwZU5LVkluNHNDcmZPd3JUSTQKR1FnYjhtT2tmaFZUNmJiNzc2SVhTa2NCdVNJQkNnVjRwSGVsaC9tUExreXB6alZNZVdiMCtoQVJiR01oQk8zTQo1akpHNkdDMlJGTkllS0J0OE5kRzdjZmtONGlpblBkSDc3QU5BUTRLVEZEU0NPZ3F4M2FJNDhPeXBXcFF4MmF2ClJGREVtQ1hwRXEwOGY4RFBBc0xJRFcwQ0lsV0R3azhnR2dDK0VTamhhODBiZk56ai9ZQjY0ZXBGSVJWYUFyR3EKQnN1Q3ppOXN1U3RjYS83SWhEd2YvcWtERVVPbUY0ZjhwVzlCenA0QllxakZ2N0QyUWlteFFwK0VPa0dkY3N3ZQp0UUlEQVFBQk1BMEdDU3FHU0liM0RRRUJDd1VBQTRJQkFRQnJVOHA2am9UMDVzb0F1TFhxc1pqcG9hV0RMUUMvClgxaXJraWkxVC9VWDMrN1Jlc3BLVldsYXY0akswS3NXZG8xLzdCb1EwVWNDYzhhUCtXdTM2b1FiWjV1K2ZNTmwKSGdlQ0JPTnAvK3JvZDk2VUd0RXhFWS9QNXBOcTJ2S0hTWitsb2o3Yit1YjdQN1hjT2hOaHUvSDVHdlkyMTMyQQpCR3kwUmJlb2x2TEdxUTVaYnAyUTYwSkpSQ2hPT2s0T3VXaUZpcW45Ujh0YjNBajNidC9WS0tCZ1BoNHI3VTlHCk1oWnRFeGE5amUwVmJVaVAwOFpDQ2szY2NVZDY1UEdNTWlDQTBseFc3cmppM0hjNXdvU2FGN2xSYk1ua2FJQkkKdTZCOUFtVW8rdUhzWVB4TUhTYklvMGtNelhBSGxzdjlXT0JBbGRyaWRIZC9XZ2tHL0l6bmVOajgKLS0tLS1FTkQgQ0VSVElGSUNBVEUtLS0tLQo=
+    service:
+      name: volume-webhook
+      namespace: llroad
+  failurePolicy: Fail
+  name: volume-webhook-injector.pingcap.com
+  namespaceSelector:
+    matchLabels:
+      nfs-volume: enabled
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - pods
+  sideEffects: Unknown

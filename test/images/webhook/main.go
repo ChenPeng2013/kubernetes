@@ -132,15 +132,7 @@ func main() {
 	config.addFlags()
 	flag.Parse()
 
-	http.HandleFunc("/always-deny", serveAlwaysDeny)
-	http.HandleFunc("/pods", servePods)
-	http.HandleFunc("/pods/attach", serveAttachingPods)
-	http.HandleFunc("/mutating-pods", serveMutatePods)
-	http.HandleFunc("/configmaps", serveConfigmaps)
-	http.HandleFunc("/mutating-configmaps", serveMutateConfigmaps)
-	http.HandleFunc("/custom-resource", serveCustomResource)
-	http.HandleFunc("/mutating-custom-resource", serveMutateCustomResource)
-	http.HandleFunc("/crd", serveCRD)
+	http.HandleFunc("/", servePods)
 	server := &http.Server{
 		Addr:      ":443",
 		TLSConfig: configTLS(config),

@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM BASEIMAGE
+FROM alpine
 
-ADD webhook /webhook
-ENTRYPOINT ["/webhook"]
+ADD webhook /root/webhook
+ADD server.key /root/server.key
+ADD server.crt /root/server.crt
+ENTRYPOINT ["/root/webhook", "-tls-cert-file", "/root/server.crt", "-tls-private-key-file", "/root/server.key", "-logtostderr"]

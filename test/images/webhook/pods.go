@@ -18,13 +18,19 @@ package main
 
 import (
 	"fmt"
-	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/golang/glog"
 	"k8s.io/api/admission/v1beta1"
+
+	"k8s.io/client-go/tools/cache"
 )
 
 const (
@@ -33,12 +39,45 @@ const (
 	]`
 )
 
+var (
+	clientset *kubernetes.Clientset
+	pvccache  cache.Store
+)
+
+func init() {
+	k8sconfig, err := rest.InClusterConfig()
+	if err != nil {
+		glog.Fatalf("Failed to create config: %v", err)
+	}
+	clientset, err = kubernetes.NewForConfig(k8sconfig)
+	if err != nil {
+		glog.Fatalf("Failed to create client: %v", err)
+	}
+	watcher := cache.NewListWatchFromClient(clientset.CoreV1().RESTClient(), "PersistentVolumeClaims", "", fields.Everything())
+
+	var controller cache.Controller
+	pvccache, controller = cache.NewInformer(watcher, &corev1.PersistentVolumeClaim{}, 10*time.Minute, cache.ResourceEventHandlerFuncs{})
+
+	ch := make(chan struct{})
+	go controller.Run(ch)
+	for !controller.HasSynced() {
+		time.Sleep(1 * time.Second)
+		glog.Infoln("waiting for synced")
+	}
+	glog.Infoln("synced success")
+}
+
 // only allow pods to pull images from specific registry.
 func admitPods(ar v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 	glog.V(2).Info("admitting pods")
 	podResource := metav1.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
 	if ar.Request.Resource != podResource {
 		err := fmt.Errorf("expect resource to be %s", podResource)
+		glog.Error(err)
+		return toAdmissionResponse(err)
+	}
+	if ar.Request.Operation != v1beta1.Create {
+		err := fmt.Errorf("unexpect operatrion %s", ar.Request.Operation)
 		glog.Error(err)
 		return toAdmissionResponse(err)
 	}
@@ -53,26 +92,90 @@ func admitPods(ar v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 	reviewResponse := v1beta1.AdmissionResponse{}
 	reviewResponse.Allowed = true
 
-	var msg string
-	if v, ok := pod.Labels["webhook-e2e-test"]; ok {
-		if v == "webhook-disallow" {
-			reviewResponse.Allowed = false
-			msg = msg + "the pod contains unwanted label; "
+	if key, ok := pod.Annotations["shared-storage/key"]; ok {
+		mountPath, _ := pod.Annotations["shared-storage/path"]
+		if mountPath == "" {
+			mountPath = "/root/nfs"
 		}
-		if v == "wait-forever" {
-			reviewResponse.Allowed = false
-			msg = msg + "the pod response should not be sent; "
-			<-make(chan int) // Sleep forever - no one sends to this channel
+
+		pvcName := ""
+		for _, item := range pvccache.List() {
+			pvc := item.(*corev1.PersistentVolumeClaim)
+
+			pvkey, ok := pvc.Annotations["shared-storage/key"]
+			if !ok {
+				continue
+			}
+			if pvkey != key {
+				continue
+			}
+			if pod.Namespace != pvc.Namespace {
+				err := fmt.Errorf("pod namespace: %s, pvc name: %s, key: %s", pod.Namespace, pvc.Namespace, key)
+				glog.Error(err)
+				return toAdmissionResponse(err)
+			}
+
+			pvcName = pvc.Name
+			break
 		}
-	}
-	for _, container := range pod.Spec.Containers {
-		if strings.Contains(container.Name, "webhook-disallow") {
-			reviewResponse.Allowed = false
-			msg = msg + "the pod contains unwanted container name; "
+		if pvcName == "" {
+			pvcName = "nfs-" + fmt.Sprintf("%d", time.Now().Unix())
+			//  create a new pvc in pod namespace
+			storageClass := "pingcap-nfs"
+			p := corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        pvcName,
+					Namespace:   pod.Namespace,
+					Annotations: map[string]string{"shared-storage/key": key},
+				},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					StorageClassName: &storageClass,
+					AccessModes: []corev1.PersistentVolumeAccessMode{
+						corev1.ReadWriteMany,
+					},
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList(map[corev1.ResourceName]resource.Quantity{corev1.ResourceStorage: resource.MustParse("10Gi")}),
+					},
+				},
+			}
+
+			glog.Infof("create pvc name: %s, namespace: %s \n", p.Name, p.Namespace)
+			if _, err := clientset.CoreV1().PersistentVolumeClaims(pod.Namespace).Create(&p); err != nil {
+				glog.Errorln(err)
+				return toAdmissionResponse(err)
+			}
 		}
-	}
-	if !reviewResponse.Allowed {
-		reviewResponse.Result = &metav1.Status{Message: strings.TrimSpace(msg)}
+		glog.Infof("pod: %s, use pvc: %s \n", pod.Name, pvcName)
+
+		reviewResponse.Allowed = true
+		data := fmt.Sprintf(`[
+		{
+			"op": "add",
+			"path": "/spec/volumes/-",
+			"value":
+			{
+				"name":"nfs",
+				"persistentVolumeClaim":
+				{
+					"claimName":"%s"
+				}
+			}
+
+		},
+		{
+			"op": "add",
+			"path": "/spec/containers/0/volumeMounts/-",
+			"value":
+				{
+					"name": "nfs",
+					"mountPath": "%s"
+				}
+
+		}
+		]`, pvcName, mountPath)
+		reviewResponse.Patch = []byte(data)
+		pt := v1beta1.PatchTypeJSONPatch
+		reviewResponse.PatchType = &pt
 	}
 	return &reviewResponse
 }
